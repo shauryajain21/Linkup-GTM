@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { WebClient } from '@slack/web-api';
 import { LinkupApiClient } from '../linkup-api/linkup-api.client';
-import type { NewUserPayload, PendingChannel } from './slack.types';
+import type { NewUserPayload } from './slack.types';
 
 export interface InternalUserConfig {
   userId: string;
@@ -12,7 +12,6 @@ export interface InternalUserConfig {
 @Injectable()
 export class SlackService implements OnModuleInit {
   private readonly LOG = new Logger(SlackService.name);
-  private readonly pendingChannels = new Map<string, PendingChannel>();
   private botUserId: string | undefined;
 
   private readonly welcomeMessage = (organizationName: string): string =>
@@ -52,13 +51,6 @@ Let us know if you have any question!`;
       }
 
       const channelId = await this.createChannel(orgName);
-
-      // Track this channel as pending - Phil, Sasha & Boris will be invited when external user joins
-      this.pendingChannels.set(channelId, {
-        channelId,
-        orgName,
-        invitedExternalUsers: new Set(),
-      });
 
       await this.inviteExternalUsersToChannel(userEmail, channelId).then(() =>
         this.sendWelcomeMessageToChannel(channelId, orgName),
@@ -253,13 +245,6 @@ Let us know if you have any question!`;
     channelId: string,
     userId: string,
   ): Promise<void> {
-    const pendingChannel = this.pendingChannels.get(channelId);
-
-    if (!pendingChannel) {
-      // Not a channel we're tracking
-      return;
-    }
-
     // Skip if this is the bot itself, Phil, Sasha, or Boris joining
     if (
       userId === this.botUserId ||
@@ -270,35 +255,46 @@ Let us know if you have any question!`;
       return;
     }
 
-    // Add to the set of external users who joined
-    pendingChannel.invitedExternalUsers.add(userId);
+    try {
+      // Fetch channel info from Slack API to check if it's a -linkup channel
+      const channelInfo = await this.slackProvider.conversations.info({
+        channel: channelId,
+      });
 
-    // Only invite Phil, Sasha & Boris once (when the first external user joins)
-    if (pendingChannel.invitedExternalUsers.size === 1) {
-      this.LOG.log(
-        `First external user joined channel ${channelId}, inviting Phil, Sasha & Boris`,
-      );
-
-      try {
-        await this.inviteInternalUsersToChannel(channelId);
-        this.scheduleInternalUserMessages(
-          channelId,
-          pendingChannel.orgName,
-          userId,
-        );
-      } catch (e) {
-        this.LOG.error(
-          `Error inviting internal users to channel ${channelId}: ${e.message}`,
-        );
+      const channelName = channelInfo.channel?.name ?? '';
+      if (!channelName.endsWith('-linkup')) {
+        return;
       }
 
-      // Clean up - remove from pending after a delay to avoid race conditions
-      setTimeout(
-        () => {
-          this.pendingChannels.delete(channelId);
-        },
-        150_000,
-      ); // 2.5 minutes (after all messages are sent)
+      // Check if internal users are already in the channel (avoid duplicate invites)
+      const members = await this.slackProvider.conversations.members({
+        channel: channelId,
+      });
+      const memberIds = members.members ?? [];
+      const internalUserIds = [
+        this.philConfig.userId,
+        this.sashaConfig.userId,
+        this.borisConfig.userId,
+      ].filter(Boolean);
+
+      const alreadyInvited = internalUserIds.some((id) =>
+        memberIds.includes(id),
+      );
+      if (alreadyInvited) {
+        return;
+      }
+
+      const orgName = channelName.replace(/-linkup$/, '');
+      this.LOG.log(
+        `External user joined channel ${channelName}, inviting Phil, Sasha & Boris`,
+      );
+
+      await this.inviteInternalUsersToChannel(channelId);
+      this.scheduleInternalUserMessages(channelId, orgName, userId);
+    } catch (e) {
+      this.LOG.error(
+        `Error handling external user join in channel ${channelId}: ${e.message}`,
+      );
     }
   }
 

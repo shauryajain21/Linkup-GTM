@@ -12,8 +12,10 @@ describe('SlackService', () => {
     },
     conversations: {
       create: jest.fn(),
+      info: jest.fn(),
       invite: jest.fn(),
       inviteShared: jest.fn(),
+      members: jest.fn(),
     },
   });
 
@@ -143,20 +145,14 @@ describe('SlackService', () => {
     it('should invite Phil, Sasha & Boris and schedule messages when external user joins', async () => {
       jest.useFakeTimers();
 
-      // First create a channel to set up pending state
-      linkupApiClient.findOrganizationsByName.mockResolvedValueOnce({ count: 0 });
-      (slackProvider.conversations.create as jest.Mock).mockResolvedValueOnce({
-        channel: { id: 'channel-id' },
-        ok: true,
+      // Mock conversations.info to return a -linkup channel
+      (slackProvider.conversations.info as jest.Mock).mockResolvedValueOnce({
+        channel: { name: 'partner-org-linkup' },
       });
-      (slackProvider.conversations.inviteShared as jest.Mock).mockResolvedValueOnce({ ok: true });
-      (slackProvider.chat.postMessage as jest.Mock).mockResolvedValue({ ok: true });
-
-      await underTest.createSupportChannel({
-        organization: { id: '1234', name: 'Partner Org' } as OrganizationPayload,
-        user: { id: 'user-1', email: 'foo@bar.baz' } as UserPayload,
+      // Mock conversations.members to return no internal users yet
+      (slackProvider.conversations.members as jest.Mock).mockResolvedValueOnce({
+        members: ['U_BOT', 'U_EXTERNAL_USER'],
       });
-
       // Mock the invite for Phil, Sasha & Boris
       (slackProvider.conversations.invite as jest.Mock).mockResolvedValueOnce({ ok: true });
 
@@ -175,32 +171,39 @@ describe('SlackService', () => {
     });
 
     it('should not invite Phil, Sasha & Boris if any of them joins (not external user)', async () => {
-      // First create a channel
-      linkupApiClient.findOrganizationsByName.mockResolvedValueOnce({ count: 0 });
-      (slackProvider.conversations.create as jest.Mock).mockResolvedValueOnce({
-        channel: { id: 'channel-id' },
-        ok: true,
-      });
-      (slackProvider.conversations.inviteShared as jest.Mock).mockResolvedValueOnce({ ok: true });
-      (slackProvider.chat.postMessage as jest.Mock).mockResolvedValue({ ok: true });
-
-      await underTest.createSupportChannel({
-        organization: { id: '1234', name: 'Partner Org' } as OrganizationPayload,
-        user: { id: 'user-1', email: 'foo@bar.baz' } as UserPayload,
-      });
-
-      // Simulate Phil joining (should be ignored)
+      // Simulate Phil joining (should be ignored before any API call)
       await underTest.handleExternalUserJoined('channel-id', 'U_PHIL_123');
 
-      // Should NOT trigger invite
+      // Should NOT trigger invite or any API calls
+      expect(slackProvider.conversations.info).not.toHaveBeenCalled();
       expect(slackProvider.conversations.invite).not.toHaveBeenCalled();
     });
 
-    it('should do nothing if channel is not tracked', async () => {
-      // Try to handle join for a channel we never created
+    it('should do nothing if channel is not a -linkup channel', async () => {
+      // Mock conversations.info to return a non-linkup channel
+      (slackProvider.conversations.info as jest.Mock).mockResolvedValueOnce({
+        channel: { name: 'random-channel' },
+      });
+
       await underTest.handleExternalUserJoined('unknown-channel', 'U_EXTERNAL_USER');
 
-      // Should not crash or call anything
+      // Should not invite anyone
+      expect(slackProvider.conversations.invite).not.toHaveBeenCalled();
+    });
+
+    it('should not invite if internal users are already in the channel', async () => {
+      // Mock conversations.info to return a -linkup channel
+      (slackProvider.conversations.info as jest.Mock).mockResolvedValueOnce({
+        channel: { name: 'partner-org-linkup' },
+      });
+      // Mock conversations.members to return Phil already in channel
+      (slackProvider.conversations.members as jest.Mock).mockResolvedValueOnce({
+        members: ['U_BOT', 'U_EXTERNAL_USER', 'U_PHIL_123'],
+      });
+
+      await underTest.handleExternalUserJoined('channel-id', 'U_EXTERNAL_USER');
+
+      // Should NOT invite since Phil is already there
       expect(slackProvider.conversations.invite).not.toHaveBeenCalled();
     });
   });

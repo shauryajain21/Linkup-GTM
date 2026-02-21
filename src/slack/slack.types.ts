@@ -14,12 +14,6 @@ export interface NewUserPayload {
   organization: OrganizationPayload;
 }
 
-export interface PendingChannel {
-  channelId: string;
-  orgName: string;
-  invitedExternalUsers: Set<string>;
-}
-
 export interface SlackEventPayload {
   type: 'url_verification' | 'event_callback';
   challenge?: string;
