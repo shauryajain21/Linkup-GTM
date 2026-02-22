@@ -241,6 +241,66 @@ Let us know if you have any question!`;
     }, 120_000);
   }
 
+  async getChannelStatuses(): Promise<
+    {
+      name: string;
+      id: string;
+      created: number;
+      hasExternalUser: boolean;
+      phil: boolean;
+      sasha: boolean;
+      boris: boolean;
+    }[]
+  > {
+    const internalUserIds = new Set(
+      [
+        this.botUserId,
+        this.philConfig.userId,
+        this.sashaConfig.userId,
+        this.borisConfig.userId,
+      ].filter(Boolean),
+    );
+
+    const channels: Awaited<ReturnType<typeof this.getChannelStatuses>> = [];
+    let cursor: string | undefined;
+
+    do {
+      const result = await this.slackProvider.conversations.list({
+        types: 'public_channel',
+        limit: 200,
+        cursor,
+      });
+
+      for (const ch of result.channels ?? []) {
+        if (!ch.name?.endsWith('-linkup') || !ch.id) continue;
+
+        const members = await this.slackProvider.conversations.members({
+          channel: ch.id,
+        });
+        const memberIds = members.members ?? [];
+
+        const hasExternalUser = memberIds.some(
+          (id) => !internalUserIds.has(id),
+        );
+
+        channels.push({
+          name: ch.name,
+          id: ch.id,
+          created: ch.created ?? 0,
+          hasExternalUser,
+          phil: memberIds.includes(this.philConfig.userId),
+          sasha: memberIds.includes(this.sashaConfig.userId),
+          boris: memberIds.includes(this.borisConfig.userId),
+        });
+      }
+
+      cursor = result.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+
+    channels.sort((a, b) => b.created - a.created);
+    return channels;
+  }
+
   async handleExternalUserJoined(
     channelId: string,
     userId: string,
