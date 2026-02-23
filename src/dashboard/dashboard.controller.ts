@@ -29,7 +29,9 @@ export class DashboardController {
     h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
     .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
     .stats { display: flex; gap: 12px; margin-bottom: 20px; }
-    .stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
+    .stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; min-width: 120px; cursor: pointer; transition: border-color 0.15s; }
+    .stat:hover { border-color: #58a6ff; }
+    .stat.active { border-color: #58a6ff; background: #1c2128; }
     .stat-value { font-size: 24px; font-weight: 700; }
     .stat-label { font-size: 11px; color: #8b949e; margin-top: 2px; }
     table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
@@ -60,38 +62,60 @@ export class DashboardController {
   <div class="stats" id="stats"></div>
   <div id="content"><div class="loading">Loading channels...</div></div>
   <script>
+    let allChannels = [];
+    let activeFilter = 'all';
+
+    const filters = {
+      all: () => allChannels,
+      external: (chs) => chs.filter(c => c.hasExternalUser),
+      setup: (chs) => chs.filter(c => c.hasExternalUser && c.phil && c.sasha && c.boris),
+      attention: (chs) => chs.filter(c => c.hasExternalUser && (!c.phil || !c.sasha || !c.boris)),
+    };
+
     async function loadData() {
       document.getElementById('content').innerHTML = '<div class="loading">Loading channels...</div>';
       try {
         const res = await fetch('/dashboard/channels');
         const data = await res.json();
         if (data.error) { throw new Error(data.error); }
-        renderStats(data);
-        renderTable(data);
+        allChannels = data;
+        renderStats();
+        renderTable(filters[activeFilter](allChannels));
       } catch (e) {
         document.getElementById('content').innerHTML = '<div class="loading">Error loading data: ' + e.message + '</div>';
       }
     }
 
-    function renderStats(channels) {
-      const total = channels.length;
-      const withExternal = channels.filter(c => c.hasExternalUser).length;
-      const fullySetup = channels.filter(c => c.hasExternalUser && c.phil && c.sasha && c.boris).length;
-      const needsAttention = channels.filter(c => c.hasExternalUser && (!c.phil || !c.sasha || !c.boris)).length;
-      document.getElementById('stats').innerHTML =
-        stat(total, 'Total Channels') +
-        stat(withExternal, 'External Joined') +
-        stat(fullySetup, 'Fully Setup') +
-        stat(needsAttention, 'Needs Attention', needsAttention > 0 ? '#f85149' : null);
+    function setFilter(filter) {
+      activeFilter = filter;
+      document.querySelectorAll('.stat').forEach(el => el.classList.remove('active'));
+      const el = document.querySelector('[data-filter="' + filter + '"]');
+      if (el) el.classList.add('active');
+      renderTable(filters[filter](allChannels));
     }
 
-    function stat(value, label, color) {
-      return '<div class="stat"><div class="stat-value"' + (color ? ' style="color:' + color + '"' : '') + '>' + value + '</div><div class="stat-label">' + label + '</div></div>';
+    function renderStats() {
+      const total = allChannels.length;
+      const withExternal = filters.external(allChannels).length;
+      const fullySetup = filters.setup(allChannels).length;
+      const needsAttention = filters.attention(allChannels).length;
+      document.getElementById('stats').innerHTML =
+        stat(total, 'Total Channels', null, 'all') +
+        stat(withExternal, 'External Joined', null, 'external') +
+        stat(fullySetup, 'Fully Setup', null, 'setup') +
+        stat(needsAttention, 'Needs Attention', needsAttention > 0 ? '#f85149' : null, 'attention');
+      document.querySelector('[data-filter="' + activeFilter + '"]')?.classList.add('active');
+    }
+
+    function stat(value, label, color, filter) {
+      return '<div class="stat' + (activeFilter === filter ? ' active' : '') + '" data-filter="' + filter + '" onclick="setFilter(\\'' + filter + '\\')">' +
+        '<div class="stat-value"' + (color ? ' style="color:' + color + '"' : '') + '>' + value + '</div>' +
+        '<div class="stat-label">' + label + '</div></div>';
     }
 
     function renderTable(channels) {
       if (channels.length === 0) {
-        document.getElementById('content').innerHTML = '<div class="loading">No -linkup channels found</div>';
+        document.getElementById('content').innerHTML = '<div class="loading">No channels match this filter</div>';
         return;
       }
       let html = '<table><thead><tr><th>Channel</th><th>Created</th><th>External User</th><th>Phil</th><th>Sasha</th><th>Boris</th></tr></thead><tbody>';
