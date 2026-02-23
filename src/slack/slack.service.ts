@@ -261,10 +261,11 @@ Let us know if you have any question!`;
       ].filter(Boolean),
     );
 
-    // Step 1: Collect all -linkup channels (pagination only, no member lookups)
+    // Step 1: Collect all -linkup channels
     const linkupChannels: { name: string; id: string; created: number }[] = [];
     let cursor: string | undefined;
 
+    this.LOG.log('Dashboard: fetching channel list...');
     do {
       const result = await this.slackProvider.conversations.list({
         types: 'public_channel',
@@ -284,24 +285,36 @@ Let us know if you have any question!`;
       cursor = result.response_metadata?.next_cursor || undefined;
     } while (cursor);
 
-    // Step 2: Fetch members for all channels in parallel
-    const channels = await Promise.all(
-      linkupChannels.map(async (ch) => {
-        const members = await this.slackProvider.conversations.members({
-          channel: ch.id,
-        });
-        const memberIds = members.members ?? [];
-
-        return {
-          ...ch,
-          hasExternalUser: memberIds.some((id) => !internalUserIds.has(id)),
-          phil: memberIds.includes(this.philConfig.userId),
-          sasha: memberIds.includes(this.sashaConfig.userId),
-          boris: memberIds.includes(this.borisConfig.userId),
-        };
-      }),
+    this.LOG.log(
+      `Dashboard: found ${linkupChannels.length} -linkup channels, fetching members...`,
     );
 
+    // Step 2: Fetch members in batches of 5 to avoid Slack rate limits
+    const channels: Awaited<ReturnType<typeof this.getChannelStatuses>> = [];
+    const batchSize = 5;
+
+    for (let i = 0; i < linkupChannels.length; i += batchSize) {
+      const batch = linkupChannels.slice(i, i + batchSize);
+      const results = await Promise.all(
+        batch.map(async (ch) => {
+          const members = await this.slackProvider.conversations.members({
+            channel: ch.id,
+          });
+          const memberIds = members.members ?? [];
+
+          return {
+            ...ch,
+            hasExternalUser: memberIds.some((id) => !internalUserIds.has(id)),
+            phil: memberIds.includes(this.philConfig.userId),
+            sasha: memberIds.includes(this.sashaConfig.userId),
+            boris: memberIds.includes(this.borisConfig.userId),
+          };
+        }),
+      );
+      channels.push(...results);
+    }
+
+    this.LOG.log(`Dashboard: done, returning ${channels.length} channels`);
     channels.sort((a, b) => b.created - a.created);
     return channels;
   }
