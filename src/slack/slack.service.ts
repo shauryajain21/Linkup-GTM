@@ -261,7 +261,8 @@ Let us know if you have any question!`;
       ].filter(Boolean),
     );
 
-    const channels: Awaited<ReturnType<typeof this.getChannelStatuses>> = [];
+    // Step 1: Collect all -linkup channels (pagination only, no member lookups)
+    const linkupChannels: { name: string; id: string; created: number }[] = [];
     let cursor: string | undefined;
 
     do {
@@ -273,29 +274,33 @@ Let us know if you have any question!`;
 
       for (const ch of result.channels ?? []) {
         if (!ch.name?.endsWith('-linkup') || !ch.id) continue;
-
-        const members = await this.slackProvider.conversations.members({
-          channel: ch.id,
-        });
-        const memberIds = members.members ?? [];
-
-        const hasExternalUser = memberIds.some(
-          (id) => !internalUserIds.has(id),
-        );
-
-        channels.push({
+        linkupChannels.push({
           name: ch.name,
           id: ch.id,
           created: ch.created ?? 0,
-          hasExternalUser,
-          phil: memberIds.includes(this.philConfig.userId),
-          sasha: memberIds.includes(this.sashaConfig.userId),
-          boris: memberIds.includes(this.borisConfig.userId),
         });
       }
 
       cursor = result.response_metadata?.next_cursor || undefined;
     } while (cursor);
+
+    // Step 2: Fetch members for all channels in parallel
+    const channels = await Promise.all(
+      linkupChannels.map(async (ch) => {
+        const members = await this.slackProvider.conversations.members({
+          channel: ch.id,
+        });
+        const memberIds = members.members ?? [];
+
+        return {
+          ...ch,
+          hasExternalUser: memberIds.some((id) => !internalUserIds.has(id)),
+          phil: memberIds.includes(this.philConfig.userId),
+          sasha: memberIds.includes(this.sashaConfig.userId),
+          boris: memberIds.includes(this.borisConfig.userId),
+        };
+      }),
+    );
 
     channels.sort((a, b) => b.created - a.created);
     return channels;
