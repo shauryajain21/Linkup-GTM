@@ -8,13 +8,7 @@ export class DashboardController {
   @Get('channels')
   async getChannels() {
     try {
-      const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timed out after 25s')), 25_000),
-      );
-      return await Promise.race([
-        this.slackService.getChannelStatuses(),
-        timeout,
-      ]);
+      return await this.slackService.getChannelStatuses();
     } catch (e) {
       return { error: e.message };
     }

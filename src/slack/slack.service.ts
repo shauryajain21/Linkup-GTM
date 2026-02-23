@@ -252,20 +252,39 @@ Let us know if you have any question!`;
       boris: boolean;
     }[]
   > {
-    const internalUserIds = new Set(
-      [
-        this.botUserId,
-        this.philConfig.userId,
-        this.sashaConfig.userId,
-        this.borisConfig.userId,
-      ].filter(Boolean),
-    );
+    const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
 
-    // Step 1: Collect all -linkup channels
-    const linkupChannels: { name: string; id: string; created: number }[] = [];
+    // Step 1: Get all channels each internal user is in (3 parallel paginated calls)
+    const getUserChannelIds = async (userId: string): Promise<Set<string>> => {
+      if (!userId) return new Set();
+      const ids = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const result = await this.slackProvider.users.conversations({
+          user: userId,
+          types: 'public_channel',
+          limit: 200,
+          cursor,
+        });
+        for (const ch of result.channels ?? []) {
+          if (ch.id) ids.add(ch.id);
+        }
+        cursor = result.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+      return ids;
+    };
+
+    this.LOG.log('Dashboard: fetching user memberships + channel list...');
+    const [philChannels, sashaChannels, borisChannels] = await Promise.all([
+      getUserChannelIds(this.philConfig.userId),
+      getUserChannelIds(this.sashaConfig.userId),
+      getUserChannelIds(this.borisConfig.userId),
+    ]);
+
+    // Step 2: List all -linkup channels created in the last 30 days
+    const channels: Awaited<ReturnType<typeof this.getChannelStatuses>> = [];
     let cursor: string | undefined;
 
-    this.LOG.log('Dashboard: fetching channel list...');
     do {
       const result = await this.slackProvider.conversations.list({
         types: 'public_channel',
@@ -275,44 +294,33 @@ Let us know if you have any question!`;
 
       for (const ch of result.channels ?? []) {
         if (!ch.name?.endsWith('-linkup') || !ch.id) continue;
-        linkupChannels.push({
+        if ((ch.created ?? 0) < thirtyDaysAgo) continue;
+
+        const philIn = philChannels.has(ch.id);
+        const sashaIn = sashaChannels.has(ch.id);
+        const borisIn = borisChannels.has(ch.id);
+
+        // num_members > known internal members means external user is present
+        const knownInternals =
+          (this.botUserId ? 1 : 0) +
+          (philIn ? 1 : 0) +
+          (sashaIn ? 1 : 0) +
+          (borisIn ? 1 : 0);
+        const hasExternalUser = (ch.num_members ?? 0) > knownInternals;
+
+        channels.push({
           name: ch.name,
           id: ch.id,
           created: ch.created ?? 0,
+          hasExternalUser,
+          phil: philIn,
+          sasha: sashaIn,
+          boris: borisIn,
         });
       }
 
       cursor = result.response_metadata?.next_cursor || undefined;
     } while (cursor);
-
-    this.LOG.log(
-      `Dashboard: found ${linkupChannels.length} -linkup channels, fetching members...`,
-    );
-
-    // Step 2: Fetch members in batches of 5 to avoid Slack rate limits
-    const channels: Awaited<ReturnType<typeof this.getChannelStatuses>> = [];
-    const batchSize = 5;
-
-    for (let i = 0; i < linkupChannels.length; i += batchSize) {
-      const batch = linkupChannels.slice(i, i + batchSize);
-      const results = await Promise.all(
-        batch.map(async (ch) => {
-          const members = await this.slackProvider.conversations.members({
-            channel: ch.id,
-          });
-          const memberIds = members.members ?? [];
-
-          return {
-            ...ch,
-            hasExternalUser: memberIds.some((id) => !internalUserIds.has(id)),
-            phil: memberIds.includes(this.philConfig.userId),
-            sasha: memberIds.includes(this.sashaConfig.userId),
-            boris: memberIds.includes(this.borisConfig.userId),
-          };
-        }),
-      );
-      channels.push(...results);
-    }
 
     this.LOG.log(`Dashboard: done, returning ${channels.length} channels`);
     channels.sort((a, b) => b.created - a.created);
