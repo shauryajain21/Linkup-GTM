@@ -1,12 +1,16 @@
 import { Body, Controller, HttpCode, Logger, Post } from '@nestjs/common';
 import { AutomationsService } from './automations.service';
+import { SlackService } from '../slack/slack.service';
 import type { NewUserPayload } from '../slack/slack.types';
 
 @Controller('automations')
 export class AutomationsController {
   private readonly LOG = new Logger(AutomationsController.name);
 
-  constructor(private readonly automationsService: AutomationsService) {}
+  constructor(
+    private readonly automationsService: AutomationsService,
+    private readonly slackService: SlackService,
+  ) {}
 
   /**
    * Trigger new user automation
@@ -30,5 +34,25 @@ export class AutomationsController {
     });
 
     return { ok: true };
+  }
+
+  /**
+   * Test the full message flow without needing Slack webhooks.
+   * Creates a channel, sends welcome + Phil's messages with threading.
+   *
+   * POST /automations/test-flow
+   * Body: { orgName: string, fakeExternalUserId: string }
+   */
+  @Post('test-flow')
+  @HttpCode(200)
+  async testFlow(
+    @Body() body: { orgName: string; fakeExternalUserId: string },
+  ): Promise<{ ok: boolean; channelId: string }> {
+    this.LOG.log(`[TEST] Starting test flow for org: ${body.orgName}`);
+    const result = await this.slackService.testFlow(
+      body.orgName,
+      body.fakeExternalUserId,
+    );
+    return { ok: true, channelId: result.channelId };
   }
 }

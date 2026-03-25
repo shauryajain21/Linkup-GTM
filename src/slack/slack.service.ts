@@ -7,6 +7,8 @@ export interface InternalUserConfig {
   userId: string;
   token: string;
   message: string;
+  threadMessage1?: string;
+  threadMessage2?: string;
 }
 
 @Injectable()
@@ -26,6 +28,7 @@ Let us know if you have any question!`;
     private readonly philConfig: InternalUserConfig,
     private readonly sashaConfig: InternalUserConfig,
     private readonly borisConfig: InternalUserConfig,
+    private readonly shauryaUserId: string,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -52,9 +55,9 @@ Let us know if you have any question!`;
 
       const channelId = await this.createChannel(orgName);
 
-      await this.inviteExternalUsersToChannel(userEmail, channelId).then(() =>
-        this.sendWelcomeMessageToChannel(channelId, orgName),
-      );
+      await this.sendWelcomeMessageToChannel(channelId, orgName);
+
+      await this.inviteExternalUsersToChannel(userEmail, channelId);
     } catch (e) {
       this.LOG.error(
         `Error while creating slack support channel for org ${orgId}: ${e.message}`,
@@ -76,12 +79,6 @@ Let us know if you have any question!`;
     const response = await this.linkupApiClient.findOrganizationsByName(
       orgName,
     );
-    // If count > 1, there are other orgs with this name (excluding current one conceptually)
-    // But since we're checking by name only, we consider it "new" if count is 0 or 1 (only this org)
-    // For safety, if the API returns any orgs, we check if there's more than 1
-    // Actually, we need to reconsider: the linkup-api endpoint will return count of ALL orgs with that name
-    // If count > 1, it means there's already an org with this name (the current one + others)
-    // If count <= 1, it's either just this org or none (new)
     return response.count <= 1;
   }
 
@@ -144,6 +141,7 @@ Let us know if you have any question!`;
       this.philConfig.userId,
       this.sashaConfig.userId,
       this.borisConfig.userId,
+      this.shauryaUserId,
     ].filter(Boolean);
 
     if (userIds.length === 0) {
@@ -158,12 +156,47 @@ Let us know if you have any question!`;
       .then(this.handleResponseError);
   }
 
+  private async sendMessageAsUserAndGetTs(
+    channelId: string,
+    userToken: string,
+    message: string,
+    orgName: string,
+    userId?: string,
+  ): Promise<string | undefined> {
+    if (!userToken || !message) {
+      return undefined;
+    }
+
+    let interpolatedMessage = message.replace(
+      /\{\{organization\}\}/gi,
+      orgName,
+    );
+
+    if (userId) {
+      interpolatedMessage = interpolatedMessage.replace(
+        /\{\{user\}\}/gi,
+        `<@${userId}>`,
+      );
+    }
+
+    const userClient = new WebClient(userToken);
+    const response = await userClient.chat
+      .postMessage({
+        channel: channelId,
+        text: interpolatedMessage,
+      })
+      .then(this.handleResponseError);
+
+    return response.ts;
+  }
+
   private async sendMessageAsUser(
     channelId: string,
     userToken: string,
     message: string,
     orgName: string,
     userId?: string,
+    threadTs?: string,
   ): Promise<void> {
     if (!userToken || !message) {
       return;
@@ -188,6 +221,7 @@ Let us know if you have any question!`;
       .postMessage({
         channel: channelId,
         text: interpolatedMessage,
+        ...(threadTs && { thread_ts: threadTs }),
       })
       .then(this.handleResponseError);
   }
@@ -197,7 +231,62 @@ Let us know if you have any question!`;
     orgName: string,
     externalUserId?: string,
   ): void {
-    // Sasha's message at 30 seconds
+    // Phil's top-level message at 20 seconds
+    setTimeout(() => {
+      this.sendMessageAsUserAndGetTs(
+        channelId,
+        this.philConfig.token,
+        this.philConfig.message,
+        orgName,
+        externalUserId,
+      )
+        .then((philMessageTs) => {
+          if (!philMessageTs) return;
+
+          // Phil's first thread reply 2s after top-level
+          if (this.philConfig.threadMessage1) {
+            setTimeout(() => {
+              this.sendMessageAsUser(
+                channelId,
+                this.philConfig.token,
+                this.philConfig.threadMessage1!,
+                orgName,
+                externalUserId,
+                philMessageTs,
+              ).catch((e) =>
+                this.LOG.error(
+                  `Error sending Phil's thread reply 1 to channel ${channelId}: ${e.message}`,
+                ),
+              );
+            }, 2_000);
+          }
+
+          // Phil's second thread reply 5s after top-level
+          if (this.philConfig.threadMessage2) {
+            setTimeout(() => {
+              this.sendMessageAsUser(
+                channelId,
+                this.philConfig.token,
+                this.philConfig.threadMessage2!,
+                orgName,
+                externalUserId,
+                philMessageTs,
+              ).catch((e) =>
+                this.LOG.error(
+                  `Error sending Phil's thread reply 2 to channel ${channelId}: ${e.message}`,
+                ),
+              );
+            }, 5_000);
+          }
+        })
+        .catch((e) =>
+          this.LOG.error(
+            `Error sending Phil's message to channel ${channelId}: ${e.message}`,
+          ),
+        );
+    }, 20_000);
+
+    // Sacha's message at 90 seconds (skipped if message is empty)
     setTimeout(() => {
       this.sendMessageAsUser(
         channelId,
@@ -207,26 +296,12 @@ Let us know if you have any question!`;
         externalUserId,
       ).catch((e) =>
         this.LOG.error(
-          `Error sending Sasha's message to channel ${channelId}: ${e.message}`,
-        ),
-      );
-    }, 30_000);
-
-    // Phil's message at 90 seconds
-    setTimeout(() => {
-      this.sendMessageAsUser(
-        channelId,
-        this.philConfig.token,
-        this.philConfig.message,
-        orgName,
-      ).catch((e) =>
-        this.LOG.error(
-          `Error sending Phil's message to channel ${channelId}: ${e.message}`,
+          `Error sending Sacha's message to channel ${channelId}: ${e.message}`,
         ),
       );
     }, 90_000);
 
-    // Boris's message at 120 seconds
+    // Boris's message at 120 seconds (skipped if message is empty)
     setTimeout(() => {
       this.sendMessageAsUser(
         channelId,
@@ -331,12 +406,13 @@ Let us know if you have any question!`;
     channelId: string,
     userId: string,
   ): Promise<void> {
-    // Skip if this is the bot itself, Phil, Sasha, or Boris joining
+    // Skip if this is the bot itself or an internal team member joining
     if (
       userId === this.botUserId ||
       userId === this.philConfig.userId ||
       userId === this.sashaConfig.userId ||
-      userId === this.borisConfig.userId
+      userId === this.borisConfig.userId ||
+      userId === this.shauryaUserId
     ) {
       return;
     }
@@ -361,6 +437,7 @@ Let us know if you have any question!`;
         this.philConfig.userId,
         this.sashaConfig.userId,
         this.borisConfig.userId,
+        this.shauryaUserId,
       ].filter(Boolean);
 
       const alreadyInvited = internalUserIds.some((id) =>
@@ -372,7 +449,7 @@ Let us know if you have any question!`;
 
       const orgName = channelName.replace(/-linkup$/, '');
       this.LOG.log(
-        `External user joined channel ${channelName}, inviting Phil, Sasha & Boris`,
+        `External user joined channel ${channelName}, inviting Phil, Sacha & Boris`,
       );
 
       await this.inviteInternalUsersToChannel(channelId);
@@ -382,6 +459,26 @@ Let us know if you have any question!`;
         `Error handling external user join in channel ${channelId}: ${e.message}`,
       );
     }
+  }
+
+  /**
+   * Test endpoint: runs the full flow without needing the Slack webhook.
+   * Creates channel -> welcome message -> invites internal users -> schedules Phil's messages.
+   */
+  async testFlow(orgName: string, fakeExternalUserId: string): Promise<{ channelId: string }> {
+    const channelId = await this.createChannel(orgName);
+    this.LOG.log(`[TEST] Created channel ${channelId} for org: ${orgName}`);
+
+    await this.sendWelcomeMessageToChannel(channelId, orgName);
+    this.LOG.log(`[TEST] Sent welcome message`);
+
+    await this.inviteInternalUsersToChannel(channelId);
+    this.LOG.log(`[TEST] Invited internal users`);
+
+    this.scheduleInternalUserMessages(channelId, orgName, fakeExternalUserId);
+    this.LOG.log(`[TEST] Scheduled messages (Phil top-level in 20s, thread replies at 22s and 25s)`);
+
+    return { channelId };
   }
 
   private handleResponseError<T extends { ok: boolean; error?: string }>(

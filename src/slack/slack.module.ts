@@ -20,6 +20,8 @@ import { SlackEventsController } from './slack-events.controller';
           userId: configService.get('SLACK_PHIL_USER_ID') ?? '',
           token: configService.get('SLACK_PHIL_TOKEN') ?? '',
           message: configService.get('SLACK_PHIL_MESSAGE') ?? '',
+          threadMessage1: configService.get('SLACK_PHIL_THREAD_MESSAGE_1') ?? '',
+          threadMessage2: configService.get('SLACK_PHIL_THREAD_MESSAGE_2') ?? '',
         };
 
         const sashaConfig: InternalUserConfig = {
@@ -47,6 +49,7 @@ import { SlackEventsController } from './slack-events.controller';
           philConfig,
           sashaConfig,
           borisConfig,
+          configService.get('SLACK_SHAURYA_USER_ID') ?? '',
         );
       },
       inject: [ConfigService, LinkupApiClient],
