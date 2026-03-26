@@ -22,13 +22,15 @@ describe('SlackService', () => {
   const philConfig: InternalUserConfig = {
     userId: 'U_PHIL_123',
     token: 'xoxp-phil-token',
-    message: 'Hello from Phil!',
+    message: 'Hi {{user}} nice to meet you!',
+    threadMessage1: 'You have my direct line here',
+    threadMessage2: 'Feel free to ping @Sacha and @Shaurya if you need help with anything',
   };
 
   const sashaConfig: InternalUserConfig = {
     userId: 'U_SASHA_456',
     token: 'xoxp-sasha-token',
-    message: 'Hello from Sasha!',
+    message: 'Hello from Sacha!',
   };
 
   const borisConfig: InternalUserConfig = {
@@ -44,6 +46,7 @@ describe('SlackService', () => {
     philConfig,
     sashaConfig,
     borisConfig,
+    'U_SHAURYA_101',
   );
 
   beforeEach(() => {
@@ -51,7 +54,7 @@ describe('SlackService', () => {
   });
 
   describe('createSupportChannel', () => {
-    it('should create a welcome channel and send a welcome message (without inviting Phil, Sasha & Boris yet)', async () => {
+    it('should create a welcome channel and send a welcome message (without inviting Phil, Sacha & Boris yet)', async () => {
       linkupApiClient.findOrganizationsByName.mockResolvedValueOnce({ count: 0 });
       (slackProvider.conversations.create as jest.Mock).mockResolvedValueOnce({
         channel: {
@@ -87,7 +90,7 @@ describe('SlackService', () => {
           channel: 'channel-id',
         }),
       );
-      // Phil, Sasha & Boris should NOT be invited yet
+      // Phil, Sacha & Boris should NOT be invited yet
       expect(slackProvider.conversations.invite).not.toHaveBeenCalled();
     });
 
@@ -142,7 +145,7 @@ describe('SlackService', () => {
   });
 
   describe('handleExternalUserJoined', () => {
-    it('should invite Phil, Sasha & Boris and schedule messages when external user joins', async () => {
+    it('should invite Phil, Sacha & Boris and schedule messages when external user joins', async () => {
       jest.useFakeTimers();
 
       // Mock conversations.info to return a -linkup channel
@@ -153,24 +156,25 @@ describe('SlackService', () => {
       (slackProvider.conversations.members as jest.Mock).mockResolvedValueOnce({
         members: ['U_BOT', 'U_EXTERNAL_USER'],
       });
-      // Mock the invite for Phil, Sasha & Boris
+
+      // Mock the invite for Phil, Sacha & Boris
       (slackProvider.conversations.invite as jest.Mock).mockResolvedValueOnce({ ok: true });
 
       // Simulate external user joining
       await underTest.handleExternalUserJoined('channel-id', 'U_EXTERNAL_USER');
 
-      // Phil, Sasha & Boris should now be invited
+      // Phil, Sacha & Boris should now be invited
       expect(slackProvider.conversations.invite).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: 'channel-id',
-          users: 'U_PHIL_123,U_SASHA_456,U_BORIS_789',
+          users: 'U_PHIL_123,U_SASHA_456,U_BORIS_789,U_SHAURYA_101',
         }),
       );
 
       jest.useRealTimers();
     });
 
-    it('should not invite Phil, Sasha & Boris if any of them joins (not external user)', async () => {
+    it('should not invite Phil, Sacha & Boris if any of them joins (not external user)', async () => {
       // Simulate Phil joining (should be ignored before any API call)
       await underTest.handleExternalUserJoined('channel-id', 'U_PHIL_123');
 

@@ -7,7 +7,7 @@ Standalone service for Slack channel automation - creates support channels for n
 - **Automatic Channel Creation**: Creates a Slack channel when a new user onboards
 - **External User Invites**: Invites the user via email to the shared channel
 - **Welcome Messages**: Sends a branded welcome message
-- **Internal Team Invites**: Automatically invites support team (Phil, Sasha, Boris) when external user joins
+- **Internal Team Invites**: Automatically invites support team (Phil, Sacha, Boris) when external user joins
 - **Scheduled Messages**: Sends personalized messages from team members at timed intervals (30s, 90s, 120s)
 
 ## API Endpoints
@@ -101,7 +101,7 @@ POST /slack/events (webhook from Slack)
 SlackEventsController.handleEvent()
          ↓
 SlackService.handleExternalUserJoined()
-         ├── Invite Phil, Sasha, Boris to channel
+         ├── Invite Phil, Sacha, Boris to channel
          └── Schedule personalized messages (30s, 90s, 120s)
 ```
 
@@ -116,9 +116,9 @@ SlackService.handleExternalUserJoined()
 | `SLACK_PHIL_USER_ID` | Phil's Slack user ID |
 | `SLACK_PHIL_TOKEN` | Phil's user OAuth token |
 | `SLACK_PHIL_MESSAGE` | Phil's personalized message |
-| `SLACK_SASHA_USER_ID` | Sasha's Slack user ID |
-| `SLACK_SASHA_TOKEN` | Sasha's user OAuth token |
-| `SLACK_SASHA_MESSAGE` | Sasha's personalized message (supports `{{user}}` placeholder) |
+| `SLACK_SASHA_USER_ID` | Sacha's Slack user ID |
+| `SLACK_SASHA_TOKEN` | Sacha's user OAuth token |
+| `SLACK_SASHA_MESSAGE` | Sacha's personalized message (supports `{{user}}` placeholder) |
 | `SLACK_BORIS_USER_ID` | Boris's Slack user ID |
 | `SLACK_BORIS_TOKEN` | Boris's user OAuth token |
 | `SLACK_BORIS_MESSAGE` | Boris's personalized message |
