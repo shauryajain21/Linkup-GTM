@@ -261,7 +261,7 @@ Let us know if you have any question!`;
             }, 2_000);
           }
 
-          // Phil's second thread reply 5s after top-level
+          // Phil's second thread reply 7s after top-level
           if (this.philConfig.threadMessage2) {
             setTimeout(() => {
               this.sendMessageAsUser(
@@ -276,7 +276,7 @@ Let us know if you have any question!`;
                   `Error sending Phil's thread reply 2 to channel ${channelId}: ${e.message}`,
                 ),
               );
-            }, 5_000);
+            }, 7_000);
           }
         })
         .catch((e) =>
@@ -284,7 +284,7 @@ Let us know if you have any question!`;
             `Error sending Phil's message to channel ${channelId}: ${e.message}`,
           ),
         );
-    }, 20_000);
+    }, 25_000);
 
     // Sacha's message at 90 seconds (skipped if message is empty)
     setTimeout(() => {
